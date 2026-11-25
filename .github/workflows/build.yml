@@ -32,6 +32,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import xml.etree.ElementTree as ET
+          ET.register_namespace("", "http://maven.apache.org/POM/4.0.0")
 
           root = Path("build-src")
           pom_path = root / "pom.xml"
