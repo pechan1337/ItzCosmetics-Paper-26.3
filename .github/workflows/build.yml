@@ -1,0 +1,112 @@
+name: Build ItzCosmetics for Paper 26.3
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout build workflow
+        uses: actions/checkout@v4
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Fetch upstream plugin source
+        run: |
+          git clone --depth 1 https://github.com/ItzIsonn/ItzCosmetics.git upstream
+          cp -a upstream/. ./build-src/
+        shell: bash
+
+      - name: Apply Paper 26.3 build settings
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          root = Path("build-src")
+          pom_path = root / "pom.xml"
+          tree = ET.parse(pom_path)
+          pom = tree.getroot()
+          ns = {"m": "http://maven.apache.org/POM/4.0.0"}
+          def tag(name):
+              return "{http://maven.apache.org/POM/4.0.0}" + name
+
+          version = pom.find(tag("version"))
+          if version is not None:
+              version.text = "1.2.0"
+
+          props = pom.find(tag("properties"))
+          if props is None:
+              props = ET.SubElement(pom, tag("properties"))
+          java = props.find(tag("java.version"))
+          if java is None:
+              java = ET.SubElement(props, tag("java.version"))
+          java.text = "25"
+
+          for plugin in pom.findall(".//" + tag("plugin")):
+              aid = plugin.find(tag("artifactId"))
+              if aid is not None and aid.text == "maven-compiler-plugin":
+                  config = plugin.find(tag("configuration"))
+                  if config is None:
+                      config = ET.SubElement(plugin, tag("configuration"))
+                  for old in ("source", "target"):
+                      el = config.find(tag(old))
+                      if el is not None:
+                          config.remove(el)
+                  release = config.find(tag("release"))
+                  if release is None:
+                      release = ET.SubElement(config, tag("release"))
+                  release.text = "${java.version}"
+
+          for dep in pom.findall(".//" + tag("dependency")):
+              aid = dep.find(tag("artifactId"))
+              if aid is None:
+                  continue
+              if aid.text == "paper-api":
+                  ver = dep.find(tag("version"))
+                  ver.text = "[26.3.build,)"
+              elif aid.text == "lombok":
+                  ver = dep.find(tag("version"))
+                  ver.text = "1.18.42"
+
+          deps = pom.find(tag("dependencies"))
+          if deps is None:
+              deps = ET.SubElement(pom, tag("dependencies"))
+          if not any((d.find(tag("artifactId")) is not None and d.find(tag("artifactId")).text == "sqlite-jdbc") for d in deps.findall(tag("dependency"))):
+              d = ET.SubElement(deps, tag("dependency"))
+              ET.SubElement(d, tag("groupId")).text = "org.xerial"
+              ET.SubElement(d, tag("artifactId")).text = "sqlite-jdbc"
+              ET.SubElement(d, tag("version")).text = "3.50.3.0"
+
+          tree.write(pom_path, encoding="UTF-8", xml_declaration=True)
+
+          plugin_yml = root / "src/main/resources/plugin.yml"
+          text = plugin_yml.read_text(encoding="utf-8")
+          text = text.replace("api-version: 1.20", "api-version: '26.3'")
+          text = text.replace("version: 1", "version: 1.2.0", 1)
+          text = text.replace("  - EssentialsX", "  - Essentials")
+          plugin_yml.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Build with Maven
+        working-directory: build-src
+        run: mvn --batch-mode --no-transfer-progress -U clean package
+
+      - name: Upload plugin JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: ItzCosmetics-Paper-26.3
+          path: build-src/target/ItzCosmetics-*.jar
+          if-no-files-found: error
+          retention-days: 14
