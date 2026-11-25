@@ -69,6 +69,23 @@ jobs:
                       release = ET.SubElement(config, tag("release"))
                   release.text = "${java.version}"
 
+                  # JDK 23+ no longer discovers processors from the compile classpath.
+                  # Register Lombok explicitly so @Getter/@Setter/@Data are generated.
+                  processors = config.find(tag("annotationProcessorPaths"))
+                  if processors is None:
+                      processors = ET.SubElement(config, tag("annotationProcessorPaths"))
+                  if not any(
+                      p.find(tag("groupId")) is not None
+                      and p.find(tag("groupId")).text == "org.projectlombok"
+                      and p.find(tag("artifactId")) is not None
+                      and p.find(tag("artifactId")).text == "lombok"
+                      for p in processors.findall(tag("path"))
+                  ):
+                      path = ET.SubElement(processors, tag("path"))
+                      ET.SubElement(path, tag("groupId")).text = "org.projectlombok"
+                      ET.SubElement(path, tag("artifactId")).text = "lombok"
+                      ET.SubElement(path, tag("version")).text = "1.18.42"
+
           for dep in pom.findall(".//" + tag("dependency")):
               aid = dep.find(tag("artifactId"))
               if aid is None:
